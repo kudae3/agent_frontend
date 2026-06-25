@@ -1,47 +1,33 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
-  AssistantRuntimeProvider,
-  useExternalStoreRuntime,
-  type AppendMessage,
-  type ThreadMessageLike,
+  AssistantRuntimeProvider, useExternalStoreRuntime,
+  type AppendMessage, type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { useStream } from "@langchain/react";
+import { HumanMessage, AIMessage } from "@langchain/core/messages";
 import { Thread } from "@/components/thread";
 import { toThreadMessages } from "./toThread";
 
 export function Chat() {
-  const stream = useStream({
-    apiUrl: "http://localhost:3000/chat",
-    assistantId: "claude",
-  });
+  const [lcMessages, setLcMessages] = useState<(HumanMessage | AIMessage)[]>([]);
 
-  const onNew = useCallback(
-    async (message: AppendMessage) => {
-      const text = message.content
-        .filter((c) => c.type === "text")
-        .map((c) => c.text)
-        .join("");
-      await stream.submit({ messages: [{ type: "human", content: text }] });
-    },
-    [stream],
-  );
+  const onNew = useCallback(async (message: AppendMessage) => {
+    const text = message.content.filter((c) => c.type === "text").map((c) => c.text).join("");
+    setLcMessages((m) => [...m, new HumanMessage(text)]);
 
-  // Convert LangChain messages to assistant-ui's ThreadMessageLike format
-  const messages = useMemo(
-    () => toThreadMessages(stream.messages),
-    [stream.messages],
-  );
+    const res = await fetch("http://localhost:3000/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    const data = await res.json();
+    setLcMessages((m) => [...m, new AIMessage(data.reply)]);
+  }, []);
+
+  const messages = useMemo(() => toThreadMessages(lcMessages), [lcMessages]);
 
   const runtime = useExternalStoreRuntime<ThreadMessageLike>({
-    messages,
-    onNew,
-    onCancel: () => stream.stop(),
-    convertMessage: (m) => m,
+    messages, onNew, convertMessage: (m) => m,
   });
 
-  return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <Thread />
-    </AssistantRuntimeProvider>
-  );
+  return (<AssistantRuntimeProvider runtime={runtime}><Thread /></AssistantRuntimeProvider>);
 }
