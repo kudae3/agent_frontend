@@ -9,23 +9,30 @@ import { toThreadMessages } from "./toThread";
 
 export function Chat() {
   const [lcMessages, setLcMessages] = useState<(HumanMessage | AIMessage)[]>([]);
-  const [conversationId, setConversationId] = useState<string>();
+  const [conversationId] = useState<string>(() => crypto.randomUUID()); // fixed per session
 
   const onNew = useCallback(async (message: AppendMessage) => {
     const text = message.content.filter((c) => c.type === "text").map((c) => c.text).join("");
     setLcMessages((m) => [...m, new HumanMessage(text)]);
 
-    const res = await fetch("http://localhost:3000/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: text,
-        conversationId: conversationId,
-      }),
-    });
-    const data = await res.json();
-    setConversationId(data.conversationId);
-    setLcMessages((m) => [...m, new AIMessage(data.reply)]);
+    try {
+      const res = await fetch("http://localhost:3000/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, threadId: conversationId }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Request failed");
+      }
+
+      const data = await res.json();
+      setLcMessages((m) => [...m, new AIMessage(data.reply)]);
+    } catch (e) {
+      console.error(e);
+      setLcMessages((m) => [...m, new AIMessage("Sorry, something went wrong.")]);
+    }
   }, [conversationId]);
 
   const messages = useMemo(() => toThreadMessages(lcMessages), [lcMessages]);
